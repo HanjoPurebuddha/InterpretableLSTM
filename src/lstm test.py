@@ -23,7 +23,7 @@ from what you see with CNNs/MLPs/etc.
 # The gating function for the three gates.
 # unit_forget_bias: Boolean. If True, add 1 to the bias of the forget gate at initialization. Setting it to true will also force  bias_initializer="zeros". This is recommended in Jozefowicz et al.
 # Bias on the forget gate as "The rationale is that the network shouldn't forget past information until it has learnt to forget it, and that it shouldn't bring in new info unless it has learnt that it is good to add new info to its internal state. While that seems sensible I have little idea whether it is useful in practice."
-# No regularizer or constraints used by defaulta
+# No regularizer or constraints used by default
 # dropout: Float between 0 and 1. Fraction of the units to drop for the linear transformation of the inputs.
 # recurrent_dropout: Float between 0 and 1. Fraction of the units to drop for the linear transformation of the recurrent state.
 # return_sequences: Boolean. Whether to return the last output. in the output sequence, or the full sequence.
@@ -71,67 +71,79 @@ max_index_a = np.zeros(len(all_params), dtype="int")
 
 forget_bias = True
 dev = True
-overwrite = False
+use_all = True
+
+import_model = "MF5000 ML200 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32"
+
+variables = import_model.split()
+
+max_features = int(variables[0][2:])
+maxlen = int(variables[1][2:])
+batch_size = int(variables[2][2:])
+epochs = int(variables[6][1:])
+forget_bias = bool(variables[3][2:])
+dropout = float(variables[4][2:])
+recurrent_dropout = float(variables[5][3:])
+embedding_size = int(variables[7].split("L")[0][2:])
+lstm_size = int(variables[7].split("L")[1][1:])
 
 print('Loading data...')
 
 # We need to load the IMDB dataset. We are constraining the dataset to the top 5,000 words. We also split the dataset into train (50%) and test (50%) sets.
-import os
+
 data_path = "../data/sentiment/lstm/"
 
 for i in range(len(all_params)):
-    max_features = all_params[0][max_index_a[0]]
-    maxlen = all_params[1][max_index_a[1]]
-    batch_size = all_params[2][max_index_a[2]]
-    epochs = all_params[3][max_index_a[3]]
-    dropout = all_params[4][max_index_a[4]]
-    recurrent_dropout = all_params[5][max_index_a[5]]
-    embedding_size = all_params[6][max_index_a[6]]
-    lstm_size = all_params[7][max_index_a[7]]
+    if import_model is None:
+        max_features = all_params[0][max_index_a[0]]
+        maxlen = all_params[1][max_index_a[1]]
+        batch_size = all_params[2][max_index_a[2]]
+        epochs = all_params[3][max_index_a[3]]
+        dropout = all_params[4][max_index_a[4]]
+        recurrent_dropout = all_params[5][max_index_a[5]]
+        embedding_size = all_params[6][max_index_a[6]]
+        lstm_size = all_params[7][max_index_a[7]]
     print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size)
     max_index = 0
     max_acc = 0
     for j in range(len(all_params[i])):
-        if i == 0:
-            max_features = all_params[0][j]
-        if i == 1:
-            maxlen = all_params[1][j]
-        if i == 2:
-            batch_size = all_params[2][j]
-        if i == 3:
-            epochs = all_params[3][j]
-        if i == 4:
-            dropout = all_params[4][j]
-        if i == 5:
-            recurrent_dropout = all_params[5][j]
-        if i == 6:
-            embedding_size = all_params[6][j]
-        if i == 7:
-            lstm_size = all_params[7][j]
-
-        file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
-            forget_bias) + " DO" \
-                    + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
-            embedding_size) + "LS" + \
-                    str(lstm_size)
-
-        print (file_name)
-
-        if os.path.exists(data_path + "score/" + file_name + ".txt") and overwrite is False:
-            print("exists")
-            continue
+        if import_model is None:
+            if i == 0:
+                max_features = all_params[0][max_index_a[j]]
+            if i == 1:
+                maxlen = all_params[1][max_index_a[j]]
+            if i == 2:
+                batch_size = all_params[2][max_index_a[j]]
+            if i == 3:
+                epochs = all_params[3][max_index_a[j]]
+            if i == 4:
+                dropout = all_params[4][max_index_a[j]]
+            if i == 5:
+                recurrent_dropout = all_params[5][max_index_a[j]]
+            if i == 6:
+                embedding_size = all_params[6][max_index_a[j]]
+            if i == 7:
+                lstm_size = all_params[7][max_index_a[j]]
+        else:
+            j = len(all_params[i])
 
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
 
         print("development data for hyperparameter tuning")
-        x_dev = x_train[int(len(x_train) * 0.8):]
-        y_dev = y_train[int(len(y_train) * 0.8):]
-        x_train = x_train[:int(len(x_train) * 0.8)]
-        y_train = y_train[:int(len(y_train) * 0.8)]
 
-        if dev:
+
+        if dev and not use_all:
+            x_train = x_train[:int(len(x_train) * 0.8)]
+            y_train = y_train[:int(len(y_train) * 0.8)]
+            x_dev = x_train[int(len(x_train) * 0.8):]
+            y_dev = y_train[int(len(y_train) * 0.8):]
             y_test = y_dev
             x_test = x_dev
+        elif use_all:
+            x_train = np.concatenate((x_train, x_test))
+            y_train = np.concatenate((y_train, y_test))
+            x_test = x_train
+            y_test = y_train
 
         # x_dev = x_train[:int(len(x_train)*0.2)]
         # y_dev = y_train[:int(len(y_train)*0.2)]
@@ -157,33 +169,35 @@ for i in range(len(all_params)):
 
         print('Build model...')
 
-        model = Sequential()
+        if import_model is None:
+            model = Sequential()
 
-        # The first layer is the Embedded layer that uses 32 length vectors to represent each word. The next layer is the LSTM layer with 100 memory units (smart neurons). Finally, because this is a classification problem we use a Dense output layer with a single neuron and a sigmoid activation function to make 0 or 1 predictions for the two classes (good and bad) in the problem.
+            # The first layer is the Embedded layer that uses 32 length vectors to represent each word. The next layer is the LSTM layer with 100 memory units (smart neurons). Finally, because this is a classification problem we use a Dense output layer with a single neuron and a sigmoid activation function to make 0 or 1 predictions for the two classes (good and bad) in the problem.
 
-        model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
-        # Input = size of vocab, output = dimension of dense embedding
+            model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
+            # Input = size of vocab, output = dimension of dense embedding
 
-        model.add(
-            LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                 dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform"))
+            model.add(
+                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
+                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform"))
 
-        model.add(Dense(1, activation='sigmoid'))
+            model.add(Dense(1, activation='sigmoid'))
 
-        # Because it is a binary classification problem, log loss is used as the loss function (binary_crossentropy in Keras). The efficient ADAM optimization algorithm is used. The model is          fit for only 2 epochs because it quickly overfits the problem. A large batch size of 64 reviews is used to space out weight updates.
+            # Because it is a binary classification problem, log loss is used as the loss function (binary_crossentropy in Keras). The efficient ADAM optimization algorithm is used. The model is          fit for only 2 epochs because it quickly overfits the problem. A large batch size of 64 reviews is used to space out weight updates.
 
-        # try using different optimizers and different optimizer configs
+            # try using different optimizers and different optimizer configs
 
-        model.compile(loss='binary_crossentropy',
-                      optimizer='adam',
-                      metrics=['accuracy'])
+            model.compile(loss='binary_crossentropy',
+                          optimizer='adam',
+                          metrics=['accuracy'])
 
-        print('Train...')
-        model.fit(x_train, y_train,
-                  batch_size=batch_size,
-                  epochs=epochs,
-                  validation_data=(x_test, y_test))
-
+            print('Train...')
+            model.fit(x_train, y_train,
+                      batch_size=batch_size,
+                      epochs=epochs,
+                      validation_data=(x_test, y_test))
+        else:
+            model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model + ".txt")
         output = model.predict(x_train)
 
         inp = model.input  # input placeholder
@@ -201,14 +215,18 @@ for i in range(len(all_params)):
         print('Test score:', score)
         print('Test accuracy:', acc)
 
+        file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
+            forget_bias) + " DO" \
+                    + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
+            embedding_size) + "LS" + \
+                    str(lstm_size)
 
+        np.savetxt(data_path + "score/" + file_name + " acc", [acc])
+        np.savetxt(data_path + "score/" + file_name + " score", [score])
 
-        np.savetxt(data_path + "score/" + file_name + " acc" +".txt", [acc])
-        np.savetxt(data_path + "score/" + file_name + " score" + ".txt", [score])
+        model.save(data_path + "model/" + file_name)
 
-        model.save(data_path + "model/" + file_name + ".txt")
-
-        np.save(data_path + "vectors/" + file_name + " L" + str(1) + ".txt", layer_outs[1])
+        np.save(data_path + "vectors/" + file_name + " L" + str(1), layer_outs[1])
 
         # Do the thing to get the acc
         if acc > max_acc:
@@ -216,8 +234,8 @@ for i in range(len(all_params)):
             max_acc = acc
     print("max option for param", i, "is", max_index, "with", max_acc)
     max_index_a[i] = max_index
-    np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc" + ".txt", max_index_a)
-    #np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc" + ".txt", all_params)
+    np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc", max_index_a)
+    np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc", all_params)
 
 # Generate parameter list
 params = []
