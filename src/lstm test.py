@@ -41,19 +41,22 @@ from keras.layers import Dense, Embedding
 from keras.layers import LSTM
 from keras.datasets import imdb
 from keras import backend as K
+import keras
 from itertools import product
 import numpy as np
 import random
+import os
 
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
-batch_size_a = [32] # M
+batch_size_a = [25] # M
 epochs_a = [64] #15,30,10 # L
 dropout_a = [0.3] # L
 recurrent_dropout_a = [0.05] # S
 embedding_size_a = [16] # S
 lstm_size_a = [32] # S
 learn_rate_a = [0.001] # S
+stateful = [False]
 
 all_params = []
 
@@ -66,26 +69,40 @@ all_params.append(recurrent_dropout_a)
 all_params.append(embedding_size_a)
 all_params.append(lstm_size_a)
 all_params.append(learn_rate_a)
+all_params.append(stateful)
 
 max_index_a = np.zeros(len(all_params), dtype="int")
 
 forget_bias = True
 dev = True
-use_all = True
+use_all = False
+iLSTM = True
+dp_fn = "LSTMFstate5k30032CV1S0 SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128 tdev"
 
-import_model = "MF5000 ML200 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32"
 
-variables = import_model.split()
+import_model = None#"MF5000 ML300 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32"
 
-max_features = int(variables[0][2:])
-maxlen = int(variables[1][2:])
-batch_size = int(variables[2][2:])
-epochs = int(variables[6][1:])
-forget_bias = bool(variables[3][2:])
-dropout = float(variables[4][2:])
-recurrent_dropout = float(variables[5][3:])
-embedding_size = int(variables[7].split("L")[0][2:])
-lstm_size = int(variables[7].split("L")[1][1:])
+if import_model is not None:
+    variables = import_model.split()
+    max_features = int(variables[0][2:])
+    maxlen = int(variables[1][2:])
+    batch_size = int(variables[2][2:])
+    epochs = int(variables[6][1:])
+    forget_bias = bool(variables[3][2:])
+    dropout = float(variables[4][2:])
+    recurrent_dropout = float(variables[5][3:])
+    embedding_size = int(variables[7].split("L")[0][2:])
+    lstm_size = int(variables[7].split("L")[1][1:])
+    try:
+        stateful = bool(variables[9][2:])
+    except IndexError:
+        print("Stateful not included, set to default false value")
+        stateful = False
+    try:
+        iLSTM = bool(variables[10][2:])
+    except IndexError:
+        print("iLSTM not included, set to default false value")
+        stateful = False
 
 print('Loading data...')
 
@@ -103,6 +120,7 @@ for i in range(len(all_params)):
         recurrent_dropout = all_params[5][max_index_a[5]]
         embedding_size = all_params[6][max_index_a[6]]
         lstm_size = all_params[7][max_index_a[7]]
+        stateful = all_params[8][max_index_a[8]]
     print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size)
     max_index = 0
     max_acc = 0
@@ -124,6 +142,8 @@ for i in range(len(all_params)):
                 embedding_size = all_params[6][max_index_a[j]]
             if i == 7:
                 lstm_size = all_params[7][max_index_a[j]]
+            if i == 8:
+                stateful = all_params[8][stateful[j]]
         else:
             j = len(all_params[i])
 
@@ -132,11 +152,12 @@ for i in range(len(all_params)):
         print("development data for hyperparameter tuning")
 
 
+
         if dev and not use_all:
-            x_train = x_train[:int(len(x_train) * 0.8)]
-            y_train = y_train[:int(len(y_train) * 0.8)]
             x_dev = x_train[int(len(x_train) * 0.8):]
             y_dev = y_train[int(len(y_train) * 0.8):]
+            x_train = x_train[:int(len(x_train) * 0.8)]
+            y_train = y_train[:int(len(y_train) * 0.8)]
             y_test = y_dev
             x_test = x_dev
         elif use_all:
@@ -144,6 +165,12 @@ for i in range(len(all_params)):
             y_train = np.concatenate((y_train, y_test))
             x_test = x_train
             y_test = y_train
+
+        if iLSTM:
+            dp = np.load("../data/sentiment/lstm/dp/" + dp_fn + ".npy")
+            y_train = dp.transpose()
+            y_test = dp.transpose()
+            x_test = x_train
 
         # x_dev = x_train[:int(len(x_train)*0.2)]
         # y_dev = y_train[:int(len(y_train)*0.2)]
@@ -168,74 +195,139 @@ for i in range(len(all_params)):
         print('x_test shape:', x_test.shape)
 
         print('Build model...')
+        file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
+            forget_bias) + " DO" \
+                    + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
+            embedding_size) + "LS" + \
+                    str(lstm_size) + " UA" + str(use_all) + "SF" + str(stateful) + " iL" + str(iLSTM)
 
-        if import_model is None:
+        vector_fn = data_path + "vectors/" + file_name + " L" + str(1)
+        model_fn = data_path + "model/" + file_name
+        score_fn = data_path + "score/" + file_name + " acc"
+        state_fn = data_path + "states/" + file_name + " HState"
+        final_state_fn = data_path + "states/" + file_name + " FState"
+
+        if import_model is None and (os.path.exists(vector_fn) is False or os.path.exists(model_fn) is False or os.path.exists(score_fn) is False or os.path.exists(state_fn) is False):
             model = Sequential()
 
             # The first layer is the Embedded layer that uses 32 length vectors to represent each word. The next layer is the LSTM layer with 100 memory units (smart neurons). Finally, because this is a classification problem we use a Dense output layer with a single neuron and a sigmoid activation function to make 0 or 1 predictions for the two classes (good and bad) in the problem.
+            if stateful:
+                model.add(Embedding(input_dim=max_features, output_dim=embedding_size, batch_input_shape=(batch_size, maxlen)))
+            else:
+                model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
 
-            model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
             # Input = size of vocab, output = dimension of dense embedding
 
-            model.add(
+            if not iLSTM:
+                model.add(
                 LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform"))
+                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
+            else:
+                model.add(
+                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="linear",
+                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
 
-            model.add(Dense(1, activation='sigmoid'))
+            if not iLSTM:
+                model.add(Dense(1, activation='sigmoid'))
+            else:
+                model.add(Dense(len(y_train[0]), activation='linear'))
+
 
             # Because it is a binary classification problem, log loss is used as the loss function (binary_crossentropy in Keras). The efficient ADAM optimization algorithm is used. The model is          fit for only 2 epochs because it quickly overfits the problem. A large batch size of 64 reviews is used to space out weight updates.
 
             # try using different optimizers and different optimizer configs
 
-            model.compile(loss='binary_crossentropy',
-                          optimizer='adam',
-                          metrics=['accuracy'])
+            if not iLSTM:
+                model.compile(loss='binary_crossentropy',
+                              optimizer='adam',
+                              metrics=['accuracy'])
+            else:
+                model.compile(loss='mse',
+                              optimizer='adam',
+                              metrics=['accuracy'])
+
 
             print('Train...')
             model.fit(x_train, y_train,
                       batch_size=batch_size,
                       epochs=epochs,
                       validation_data=(x_test, y_test))
-        else:
+        elif import_model is not None:
             model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model + ".txt")
-        output = model.predict(x_train)
 
-        inp = model.input  # input placeholder
-        outputs = [layer.output for layer in model.layers]  # all layer outputs
-        functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
-        # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
+        if os.path.exists(vector_fn) is False:
+            if stateful is False:
+                print("Output vectors")
+                inp = model.input  # input placeholder
+                outputs = [layer.output for layer in model.layers]  # all layer outputs
+                functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
+                # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
+                layer_outs = functor([x_train, 1.])
+                np.save(vector_fn, layer_outs[1])
 
-        # Testing
-        test = x_train
-        layer_outs = functor([test, 1.])
-        print(layer_outs)
+                print("Saved")
 
-        score, acc = model.evaluate(x_test, y_test,
-                                    batch_size=batch_size)
-        print('Test score:', score)
-        print('Test accuracy:', acc)
 
-        file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
-            forget_bias) + " DO" \
-                    + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
-            embedding_size) + "LS" + \
-                    str(lstm_size)
 
-        np.savetxt(data_path + "score/" + file_name + " acc", [acc])
-        np.savetxt(data_path + "score/" + file_name + " score", [score])
+        if os.path.exists(model_fn) is False:
+            print("Model")
+            model.save(data_path + "model/" + file_name)
+            print("Saved")
 
-        model.save(data_path + "model/" + file_name)
 
-        np.save(data_path + "vectors/" + file_name + " L" + str(1), layer_outs[1])
+        if os.path.exists(score_fn) is False:
+            print("Scores")
+            score, acc = model.evaluate(x_test, y_test,
+                                        batch_size=batch_size)
+            print('Test score:', score)
+            print('Test accuracy:', acc)
 
-        # Do the thing to get the acc
-        if acc > max_acc:
-            max_index = j
-            max_acc = acc
-    print("max option for param", i, "is", max_index, "with", max_acc)
-    max_index_a[i] = max_index
-    np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc", max_index_a)
-    np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc", all_params)
+
+            np.savetxt(data_path + "score/" + file_name + " acc", [acc])
+            np.savetxt(data_path + "score/" + file_name + " score", [score])
+            print("Saved")
+
+            # Do the thing to get the acc
+            if acc > max_acc:
+                max_index = j
+                max_acc = acc
+
+        if os.path.exists(state_fn) is False:
+            print("States")
+            target_layer = model.layers[-2]
+            target_layer.return_sequences = True
+            outputs = target_layer(target_layer.input)
+            m = keras.Model(model.input, outputs)
+            hidden_states = m.predict(x_train)
+            np.save(state_fn, hidden_states)
+            final_state = np.empty(shape=(len(x_train),lstm_size), dtype="object")
+            for i in range(len(hidden_states)):
+                final_state[i] = hidden_states[i][maxlen-1]
+            np.save(final_state_fn, final_state)
+            """
+            inp = model.input  # input placeholder
+            outputs = [layer.output for layer in model.layers]  # all layer outputs
+            functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
+            # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
+            layer_outs = functor([x_train, 1.])
+
+            #np.save(data_path + "states/" + file_name + " C", states[0])
+            """
+            print("Saved")
+
+
+        if import_model is not None:
+            print("Complete!")
+            break
+
+    if import_model is not None:
+        print("Complete!")
+        break
+    if import_model is None:
+        print("max option for param", i, "is", max_index, "with", max_acc)
+        max_index_a[i] = max_index
+        np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc", max_index_a)
+        np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc", all_params)
 
 # Generate parameter list
 params = []
