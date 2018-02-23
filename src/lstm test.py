@@ -56,7 +56,6 @@ recurrent_dropout_a = [0.05] # S
 embedding_size_a = [16] # S
 lstm_size_a = [32] # S
 learn_rate_a = [0.001] # S
-stateful = [False]
 
 all_params = []
 
@@ -69,10 +68,10 @@ all_params.append(recurrent_dropout_a)
 all_params.append(embedding_size_a)
 all_params.append(lstm_size_a)
 all_params.append(learn_rate_a)
-all_params.append(stateful)
 
 max_index_a = np.zeros(len(all_params), dtype="int")
 
+stateful =False
 forget_bias = True
 dev = True
 use_all = False
@@ -120,8 +119,7 @@ for i in range(len(all_params)):
         recurrent_dropout = all_params[5][max_index_a[5]]
         embedding_size = all_params[6][max_index_a[6]]
         lstm_size = all_params[7][max_index_a[7]]
-        stateful = all_params[8][max_index_a[8]]
-    print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size)
+    print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size, stateful, iLSTM)
     max_index = 0
     max_acc = 0
     for j in range(len(all_params[i])):
@@ -142,8 +140,6 @@ for i in range(len(all_params)):
                 embedding_size = all_params[6][max_index_a[j]]
             if i == 7:
                 lstm_size = all_params[7][max_index_a[j]]
-            if i == 8:
-                stateful = all_params[8][stateful[j]]
         else:
             j = len(all_params[i])
 
@@ -199,7 +195,9 @@ for i in range(len(all_params)):
             forget_bias) + " DO" \
                     + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
             embedding_size) + "LS" + \
-                    str(lstm_size) + " UA" + str(use_all) + "SF" + str(stateful) + " iL" + str(iLSTM)
+                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM)
+
+        print(file_name)
 
         vector_fn = data_path + "vectors/" + file_name + " L" + str(1)
         model_fn = data_path + "model/" + file_name
@@ -212,6 +210,7 @@ for i in range(len(all_params)):
 
             # The first layer is the Embedded layer that uses 32 length vectors to represent each word. The next layer is the LSTM layer with 100 memory units (smart neurons). Finally, because this is a classification problem we use a Dense output layer with a single neuron and a sigmoid activation function to make 0 or 1 predictions for the two classes (good and bad) in the problem.
             if stateful:
+                print("STATEFUL")
                 model.add(Embedding(input_dim=max_features, output_dim=embedding_size, batch_input_shape=(batch_size, maxlen)))
             else:
                 model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
@@ -224,7 +223,7 @@ for i in range(len(all_params)):
                      dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
             else:
                 model.add(
-                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="linear",
+                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
                      dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
 
             if not iLSTM:
