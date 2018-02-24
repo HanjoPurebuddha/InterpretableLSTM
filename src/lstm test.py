@@ -76,10 +76,11 @@ forget_bias = True
 dev = True
 use_all = False
 iLSTM = True
+iLSTM_t_model = False
 dp_fn = "LSTMFstate5k30032CV1S0 SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128 tdev"
 
 
-import_model = None#"MF5000 ML300 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32"
+import_model = "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.05 E64 ES16LS32 UAFalse SFFalse iLTrue"
 
 if import_model is not None:
     variables = import_model.split()
@@ -102,12 +103,79 @@ if import_model is not None:
     except IndexError:
         print("iLSTM not included, set to default false value")
         stateful = False
+    try:
+        iLSTM_t_model = bool(variables[11][2:])
+    except IndexError:
+        print("iLSTM not included, set to default false value")
+        iLSTM_t_model = False
+
+
 
 print('Loading data...')
 
 # We need to load the IMDB dataset. We are constraining the dataset to the top 5,000 words. We also split the dataset into train (50%) and test (50%) sets.
 
 data_path = "../data/sentiment/lstm/"
+
+
+def saveVectors(m, v_fn):
+    if os.path.exists(v_fn) is False:
+        if stateful is False:
+            print("Output vectors")
+            inp = m.input  # input placeholder
+            outputs = [layer.output for layer in m.layers]  # all layer outputs
+            functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
+            # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
+            layer_outs = functor([x_train, 1.])
+            np.save(v_fn, layer_outs[1])
+            print("Saved")
+    else:
+        print("Vectors already saved")
+
+
+def saveModel(m, m_fn):
+    if os.path.exists(m_fn) is False:
+        print("Model")
+        model.save(m_fn)
+        print("Saved")
+    else:
+        print("Model already saved")
+
+
+def saveScores(m, a_fn, s_fn):
+    if os.path.exists(score_fn) is False:
+        print("Scores")
+        score, acc = model.evaluate(x_test, y_test,
+                                    batch_size=batch_size)
+        print('Test score:', score)
+        print('Test accuracy:', acc)
+
+        np.savetxt(a_fn, [acc])
+        np.savetxt(s_fn, [score])
+        print("Saved")
+    else:
+        acc = 0
+        score = 0
+        print("Scores already saved")
+    return acc, score
+
+
+def saveState(m, s_fn, f_s_fn):
+    if os.path.exists(f_s_fn + ".npy") is False:
+        print("States")
+        target_layer = model.layers[-2]
+        target_layer.return_sequences = True
+        outputs = target_layer(target_layer.input)
+        m = keras.Model(model.input, outputs)
+        hidden_states = m.predict(x_train)
+        # np.save(s_fn, hidden_states)
+        final_state = np.empty(shape=(len(x_train), lstm_size), dtype="object")
+        for i in range(len(hidden_states)):
+            final_state[i] = hidden_states[i][maxlen - 1]
+        np.save(f_s_fn, final_state)
+    else:
+        print("States already saved")
+    print("Saved")
 
 for i in range(len(all_params)):
     if import_model is None:
@@ -162,11 +230,19 @@ for i in range(len(all_params)):
             x_test = x_train
             y_test = y_train
 
+        print('Pad sequences (samples x time)')
+        x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
+        x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
+
         if iLSTM:
             dp = np.load("../data/sentiment/lstm/dp/" + dp_fn + ".npy")
+            s_x_test = x_test
+            s_y_train = y_train
+            s_y_test = y_test
             y_train = dp.transpose()
             y_test = dp.transpose()
             x_test = x_train
+            #hs = np.load("../data/sentiment/lstm/states/" + "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.05 E64 ES16LS32 UAFalse SFFalse iLTrue FState.npy")
 
         # x_dev = x_train[:int(len(x_train)*0.2)]
         # y_dev = y_train[:int(len(y_train)*0.2)]
@@ -175,33 +251,34 @@ for i in range(len(all_params)):
 
         print(len(x_train), 'train sequences')
         print(len(x_test), 'test sequences')
+        print(len(y_train), 'ytrain sequences')
+        print(len(y_test), 'ytest sequences')
+        print('x_train shape:', x_train.shape)
+        print('x_test shape:', x_test.shape)
+        print('y_train shape:', y_train.shape)
+        print('y_test shape:', y_test.shape)
+
         # print(len(x_dev), 'dev train sequences')
         # print(len(y_dev), 'dev test sequences')
 
         # Next, we need to truncate and pad the input sequences so that they are all the same length for modeling. The model will learn the zero values carry no information so indeed the sequences are not the same length in terms of content, but same length vectors is required to perform the computation in Keras.
         """"""
-        print('Pad sequences (samples x time)')
-        x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
-        x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
-        print('x_train shape:', x_train.shape)
-        print('x_test shape:', x_test.shape)
 
 
-        print('x_train shape:', x_train.shape)
-        print('x_test shape:', x_test.shape)
 
         print('Build model...')
         file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
             forget_bias) + " DO" \
                     + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
             embedding_size) + "LS" + \
-                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM)
+                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTFalse"
 
         print(file_name)
 
         vector_fn = data_path + "vectors/" + file_name + " L" + str(1)
         model_fn = data_path + "model/" + file_name
-        score_fn = data_path + "score/" + file_name + " acc"
+        acc_fn = data_path + "score/" + file_name + " acc"
+        score_fn = data_path + "score/" + file_name + " score"
         state_fn = data_path + "states/" + file_name + " HState"
         final_state_fn = data_path + "states/" + file_name + " FState"
 
@@ -252,67 +329,78 @@ for i in range(len(all_params)):
                       epochs=epochs,
                       validation_data=(x_test, y_test))
         elif import_model is not None:
-            model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model + ".txt")
+            model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model )
 
-        if os.path.exists(vector_fn) is False:
-            if stateful is False:
-                print("Output vectors")
-                inp = model.input  # input placeholder
-                outputs = [layer.output for layer in model.layers]  # all layer outputs
-                functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
-                # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
-                layer_outs = functor([x_train, 1.])
-                np.save(vector_fn, layer_outs[1])
 
-                print("Saved")
+        saveVectors(model, vector_fn)
 
 
 
-        if os.path.exists(model_fn) is False:
-            print("Model")
-            model.save(data_path + "model/" + file_name)
-            print("Saved")
+        saveModel(model, model_fn)
 
 
-        if os.path.exists(score_fn) is False:
-            print("Scores")
-            score, acc = model.evaluate(x_test, y_test,
-                                        batch_size=batch_size)
-            print('Test score:', score)
-            print('Test accuracy:', acc)
+        acc, score = saveScores(model, acc_fn, score_fn)
+        # Do the thing to get the acc
+        if acc > max_acc:
+            max_index = j
+            max_acc = acc
 
 
-            np.savetxt(data_path + "score/" + file_name + " acc", [acc])
-            np.savetxt(data_path + "score/" + file_name + " score", [score])
-            print("Saved")
 
-            # Do the thing to get the acc
+        saveState(model, state_fn, final_state_fn)
+
+        # Train the new supervised model
+        if iLSTM:
+            file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
+                forget_bias) + " DO" \
+                        + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
+                embedding_size) + "LS" + \
+                        str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTTrue"
+
+            print(file_name)
+
+            vector_fn = data_path + "vectors/" + file_name + " L" + str(1)
+            model_fn = data_path + "model/" + file_name
+            acc_fn = data_path + "score/" + file_name + " acc"
+            score_fn = data_path + "score/" + file_name + " score"
+            state_fn = data_path + "states/" + file_name + " HState"
+            final_state_fn = data_path + "states/" + file_name + " FState"
+
+            model.pop() # Remove previous layer
+            model.add(Dense(1, activation='sigmoid')) # Add supervised layer
+            model.compile(loss='binary_crossentropy',
+                          optimizer='adam',
+                          metrics=['accuracy'])
+
+            x_test = s_x_test
+            y_test = s_y_test
+            y_train = s_y_train
+
+            print(len(x_train), 'train sequences')
+            print(len(x_test), 'test sequences')
+            print(len(y_train), 'ytrain sequences')
+            print(len(y_test), 'ytest sequences')
+            print('x_train shape:', x_train.shape)
+            print('x_test shape:', x_test.shape)
+            print('y_train shape:', y_train.shape)
+            print('y_test shape:', y_test.shape)
+
+            print('Train...')
+            model.fit(x_train, y_train,
+                      batch_size=batch_size,
+                      epochs=epochs,
+                      validation_data=(x_test, y_test))
+
+            saveVectors(model, vector_fn)
+            saveModel(model, model_fn)
+            acc, score = saveScores(model, acc_fn, score_fn)
+            saveState(model, state_fn, final_state_fn)
+
             if acc > max_acc:
                 max_index = j
                 max_acc = acc
 
-        if os.path.exists(state_fn) is False:
-            print("States")
-            target_layer = model.layers[-2]
-            target_layer.return_sequences = True
-            outputs = target_layer(target_layer.input)
-            m = keras.Model(model.input, outputs)
-            hidden_states = m.predict(x_train)
-            np.save(state_fn, hidden_states)
-            final_state = np.empty(shape=(len(x_train),lstm_size), dtype="object")
-            for i in range(len(hidden_states)):
-                final_state[i] = hidden_states[i][maxlen-1]
-            np.save(final_state_fn, final_state)
-            """
-            inp = model.input  # input placeholder
-            outputs = [layer.output for layer in model.layers]  # all layer outputs
-            functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
-            # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
-            layer_outs = functor([x_train, 1.])
 
-            #np.save(data_path + "states/" + file_name + " C", states[0])
-            """
-            print("Saved")
 
 
         if import_model is not None:
