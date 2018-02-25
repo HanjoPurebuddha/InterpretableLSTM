@@ -46,13 +46,14 @@ from itertools import product
 import numpy as np
 import random
 import os
+from sklearn.metrics import f1_score
 
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
 batch_size_a = [25] # M
 epochs_a = [64] #15,30,10 # L
 dropout_a = [0.3] # L
-recurrent_dropout_a = [0.05] # S
+recurrent_dropout_a = [0.004] # S
 embedding_size_a = [16] # S
 lstm_size_a = [32] # S
 learn_rate_a = [0.001] # S
@@ -75,12 +76,13 @@ stateful =False
 forget_bias = True
 dev = True
 use_all = False
-iLSTM = True
+iLSTM = False
 iLSTM_t_model = False
+rewrite = True
 dp_fn = "LSTMFstate5k30032CV1S0 SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128 tdev"
 
 
-import_model = "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.05 E64 ES16LS32 UAFalse SFFalse iLTrue"
+import_model = "MF5000 ML500 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32.txt"
 
 if import_model is not None:
     variables = import_model.split()
@@ -92,7 +94,11 @@ if import_model is not None:
     dropout = float(variables[4][2:])
     recurrent_dropout = float(variables[5][3:])
     embedding_size = int(variables[7].split("L")[0][2:])
-    lstm_size = int(variables[7].split("L")[1][1:])
+    try:
+        lstm_size = int(variables[7].split("L")[1][1:])
+    except ValueError:
+        lstm_size =  int(variables[7].split("L")[1][1:].split(".")[0])
+        print(".Txt detected, split on '.', result is: " + str(lstm_size))
     try:
         stateful = bool(variables[9][2:])
     except IndexError:
@@ -102,7 +108,7 @@ if import_model is not None:
         iLSTM = bool(variables[10][2:])
     except IndexError:
         print("iLSTM not included, set to default false value")
-        stateful = False
+        iLSTM = False
     try:
         iLSTM_t_model = bool(variables[11][2:])
     except IndexError:
@@ -120,15 +126,14 @@ data_path = "../data/sentiment/lstm/"
 
 def saveVectors(m, v_fn):
     if os.path.exists(v_fn) is False:
-        if stateful is False:
-            print("Output vectors")
-            inp = m.input  # input placeholder
-            outputs = [layer.output for layer in m.layers]  # all layer outputs
-            functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
-            # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
-            layer_outs = functor([x_train, 1.])
-            np.save(v_fn, layer_outs[1])
-            print("Saved")
+        print("Output vectors")
+        inp = m.input  # input placeholder
+        outputs = [layer.output for layer in m.layers]  # all layer outputs
+        functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
+        # Note: To simulate Dropout use learning_phase as 1. in layer_outs otherwise use 0.
+        layer_outs = functor([x_train, 1.])
+        np.save(v_fn, layer_outs[1])
+        print("Saved")
     else:
         print("Vectors already saved")
 
@@ -142,22 +147,29 @@ def saveModel(m, m_fn):
         print("Model already saved")
 
 
-def saveScores(m, a_fn, s_fn):
-    if os.path.exists(score_fn) is False:
+def saveScores(m, s_fn, development, x, y, rewrite):
+    a_fn = s_fn + " score" + " d" + str(development)
+    f1_fn = s_fn + " score" + " d" + str(development)
+    sc_fn = s_fn + " score" + " d" + str(development)
+    if os.path.exists(sc_fn ) is False or os.path.exists(f1_fn) is False or rewrite:
         print("Scores")
-        score, acc = model.evaluate(x_test, y_test,
+        score, acc = model.evaluate(x, y,
                                     batch_size=batch_size)
+        y_pred = model.predict_classes(y)
+        f1 = f1_score(y, y_pred)
         print('Test score:', score)
         print('Test accuracy:', acc)
-
+        print('Test f1:', f1)
         np.savetxt(a_fn, [acc])
-        np.savetxt(s_fn, [score])
+        np.savetxt(sc_fn, [score])
+        np.savetxt(f1_fn, [f1])
         print("Saved")
     else:
-        acc = 0
-        score = 0
+        acc = np.loadtxt(a_fn, dtype="float")
+        score = np.loadtxt(sc_fn, dtype="float")
+        f1 = np.loadtxt(a_fn, dtype="float")
         print("Scores already saved")
-    return acc, score
+    return acc, score, f1
 
 
 def saveState(m, s_fn, f_s_fn):
@@ -229,16 +241,21 @@ for i in range(len(all_params)):
             y_train = np.concatenate((y_train, y_test))
             x_test = x_train
             y_test = y_train
+        elif not dev and not use_all:
+            x_train = x_train[:int(len(x_train) * 0.8)]
+            y_train = y_train[:int(len(y_train) * 0.8)]
+
 
         print('Pad sequences (samples x time)')
         x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
         x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
 
-        if iLSTM:
+        if iLSTM and not iLSTM_t_model:
             dp = np.load("../data/sentiment/lstm/dp/" + dp_fn + ".npy")
             s_x_test = x_test
             s_y_train = y_train
             s_y_test = y_test
+            s_x_train = x_train
             y_train = dp.transpose()
             y_test = dp.transpose()
             x_test = x_train
@@ -267,18 +284,19 @@ for i in range(len(all_params)):
 
 
         print('Build model...')
-        file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
+        if not import_model:
+            file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
             forget_bias) + " DO" \
                     + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
             embedding_size) + "LS" + \
-                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTFalse"
-
+                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rT" + str(iLSTM_t_model)
+        else:
+            file_name = import_model
         print(file_name)
 
         vector_fn = data_path + "vectors/" + file_name + " L" + str(1)
         model_fn = data_path + "model/" + file_name
-        acc_fn = data_path + "score/" + file_name + " acc"
-        score_fn = data_path + "score/" + file_name + " score"
+        score_fn = data_path + "score/" + file_name
         state_fn = data_path + "states/" + file_name + " HState"
         final_state_fn = data_path + "states/" + file_name + " FState"
 
@@ -329,28 +347,22 @@ for i in range(len(all_params)):
                       epochs=epochs,
                       validation_data=(x_test, y_test))
         elif import_model is not None:
+            print("Loading model...")
             model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model )
-
-
-        saveVectors(model, vector_fn)
 
 
 
         saveModel(model, model_fn)
-
-
-        acc, score = saveScores(model, acc_fn, score_fn)
+        saveVectors(model, vector_fn)
+        saveState(model, state_fn, final_state_fn)
+        acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, rewrite)
         # Do the thing to get the acc
         if acc > max_acc:
             max_index = j
             max_acc = acc
 
-
-
-        saveState(model, state_fn, final_state_fn)
-
         # Train the new supervised model
-        if iLSTM:
+        if iLSTM and not iLSTM_t_model:
             file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
                 forget_bias) + " DO" \
                         + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
@@ -375,6 +387,7 @@ for i in range(len(all_params)):
             x_test = s_x_test
             y_test = s_y_test
             y_train = s_y_train
+            x_train = s_x_train
 
             print(len(x_train), 'train sequences')
             print(len(x_test), 'test sequences')
@@ -393,7 +406,7 @@ for i in range(len(all_params)):
 
             saveVectors(model, vector_fn)
             saveModel(model, model_fn)
-            acc, score = saveScores(model, acc_fn, score_fn)
+            acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test)
             saveState(model, state_fn, final_state_fn)
 
             if acc > max_acc:
