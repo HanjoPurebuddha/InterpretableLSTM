@@ -76,13 +76,14 @@ stateful =False
 forget_bias = True
 dev = True
 use_all = False
-iLSTM = False
+iLSTM = True
 iLSTM_t_model = False
 rewrite = True
-dp_fn = "LSTMFstate5k30032CV1S0 SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128 tdev"
+dp_fn = "LSTMFstate5k30032CV1S0LE SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128"
 
 
-import_model = "MF5000 ML500 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32.txt"
+import_model = None
+#import_model = "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.004 E64 ES16LS32 UAFalse SFFalse iLFalse rTFalse"
 
 if import_model is not None:
     variables = import_model.split()
@@ -148,8 +149,8 @@ def saveModel(m, m_fn):
 
 
 def saveScores(m, s_fn, development, x, y, rewrite):
-    a_fn = s_fn + " score" + " d" + str(development)
-    f1_fn = s_fn + " score" + " d" + str(development)
+    a_fn = s_fn + " acc" + " d" + str(development)
+    f1_fn = s_fn + " f1" + " d" + str(development)
     sc_fn = s_fn + " score" + " d" + str(development)
     if os.path.exists(sc_fn ) is False or os.path.exists(f1_fn) is False or rewrite:
         print("Scores")
