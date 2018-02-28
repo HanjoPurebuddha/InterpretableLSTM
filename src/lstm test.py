@@ -39,6 +39,8 @@ from keras.preprocessing import sequence
 from keras.models import Sequential
 from keras.layers import Dense, Embedding
 from keras.layers import LSTM
+from keras.models import Model
+from keras.layers import Input
 from keras.datasets import imdb
 from keras import backend as K
 import keras
@@ -48,12 +50,16 @@ import random
 import os
 from sklearn.metrics import f1_score
 
+
+i_output_name = "PCAppmi0None20kCV1S0 SFT0 allL0305000LRkappa KMeans CA200 MC1 MS0.4 ATS2001 DS400 tdev"
+
+
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
 batch_size_a = [25] # M
 epochs_a = [64] #15,30,10 # L
 dropout_a = [0.3] # L
-recurrent_dropout_a = [0.004] # S
+recurrent_dropout_a = [0.05] # S
 embedding_size_a = [16] # S
 lstm_size_a = [32] # S
 learn_rate_a = [0.001] # S
@@ -72,17 +78,18 @@ all_params.append(learn_rate_a)
 
 max_index_a = np.zeros(len(all_params), dtype="int")
 
+scale_amount = 1
 stateful =False
 forget_bias = True
 dev = True
 use_all = False
-iLSTM = False
+iLSTM = True
 iLSTM_t_model = False
 rewrite = True
-dp_fn = "LSTMFstate5k30032CV1S0 SFT0 allL030LRkappa KMeans CA64 MC1 MS0.4 ATS1000 DS128 tdev"
+use_lr = False
 
 
-import_model = "MF5000 ML500 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32.txt"
+import_model = None#"MF5000 ML500 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32.txt"
 
 if import_model is not None:
     variables = import_model.split()
@@ -114,6 +121,11 @@ if import_model is not None:
     except IndexError:
         print("iLSTM not included, set to default false value")
         iLSTM_t_model = False
+    try:
+        use_lr = bool(variables[12][2:])
+    except IndexError:
+        print("use_lr not included, set to default false value")
+        use_lr = False
 
 
 
@@ -223,44 +235,59 @@ for i in range(len(all_params)):
         else:
             j = len(all_params[i])
 
+
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
+        y_cell = np.load("../data/sentiment/lstm/b_clusters/"+ i_output_name + ".npy").transpose()
+        y_cell_train = y_cell[:len(x_train)]
+        y_cell_test = y_cell[len(x_train):len(x_train) + len(x_test)]
 
         print("development data for hyperparameter tuning")
-
 
 
         if dev and not use_all:
             x_dev = x_train[int(len(x_train) * 0.8):]
             y_dev = y_train[int(len(y_train) * 0.8):]
+            y_cell_dev = y_cell_train[int(len(y_cell_train) * 0.8):]
             x_train = x_train[:int(len(x_train) * 0.8)]
             y_train = y_train[:int(len(y_train) * 0.8)]
+            y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
             y_test = y_dev
             x_test = x_dev
+            y_cell_test = y_cell_dev
         elif use_all:
             x_train = np.concatenate((x_train, x_test))
             y_train = np.concatenate((y_train, y_test))
             x_test = x_train
             y_test = y_train
+            y_cell_train = np.concatenate((y_cell_train, y_cell_test))
+            y_cell_test = y_cell_train
         elif not dev and not use_all:
             x_train = x_train[:int(len(x_train) * 0.8)]
             y_train = y_train[:int(len(y_train) * 0.8)]
+            y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
 
+        if iLSTM:
+            lstm_size = len(y_cell_train[0])
 
         print('Pad sequences (samples x time)')
         x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
         x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
 
+        """
         if iLSTM and not iLSTM_t_model:
-            dp = np.load("../data/sentiment/lstm/dp/" + dp_fn + ".npy")
+            if use_lr:
+                i_output = np.load("../data/sentiment/lstm/dp/" + i_output_name + ".npy")
+            else:
+                i_output = np.load("../data/sentiment/lstm/lr/" + i_output_name + ".npy")
+                y_train = i_output.transpose()
+                y_test = i_output.transpose()
             s_x_test = x_test
             s_y_train = y_train
             s_y_test = y_test
             s_x_train = x_train
-            y_train = dp.transpose()
-            y_test = dp.transpose()
             x_test = x_train
             #hs = np.load("../data/sentiment/lstm/states/" + "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.05 E64 ES16LS32 UAFalse SFFalse iLTrue FState.npy")
-
+        """
         # x_dev = x_train[:int(len(x_train)*0.2)]
         # y_dev = y_train[:int(len(y_train)*0.2)]
         # x_train = x_train[int(len(x_train)*0.2):]
@@ -281,15 +308,13 @@ for i in range(len(all_params)):
         # Next, we need to truncate and pad the input sequences so that they are all the same length for modeling. The model will learn the zero values carry no information so indeed the sequences are not the same length in terms of content, but same length vectors is required to perform the computation in Keras.
         """"""
 
-
-
         print('Build model...')
         if not import_model:
             file_name = "MF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(batch_size) + " FB" + str(
             forget_bias) + " DO" \
                     + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
             embedding_size) + "LS" + \
-                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rT" + str(iLSTM_t_model)
+                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rT" + str(iLSTM_t_model) + " lr" + str(use_lr) + " sA" + str(scale_amount)
         else:
             file_name = import_model
         print(file_name)
@@ -301,51 +326,50 @@ for i in range(len(all_params)):
         final_state_fn = data_path + "states/" + file_name + " FState"
 
         if import_model is None and (os.path.exists(vector_fn) is False or os.path.exists(model_fn) is False or os.path.exists(score_fn) is False or os.path.exists(state_fn) is False):
-            model = Sequential()
 
-            # The first layer is the Embedded layer that uses 32 length vectors to represent each word. The next layer is the LSTM layer with 100 memory units (smart neurons). Finally, because this is a classification problem we use a Dense output layer with a single neuron and a sigmoid activation function to make 0 or 1 predictions for the two classes (good and bad) in the problem.
-            if stateful:
-                print("STATEFUL")
-                model.add(Embedding(input_dim=max_features, output_dim=embedding_size, batch_input_shape=(batch_size, maxlen)))
+            if iLSTM:
+                input_layer = Input(shape=(maxlen,))  #
+                embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size)(input_layer)
+                h_l1, h_l2, cell_state = LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
+                     dropout=0.0, recurrent_dropout=0.0, kernel_initializer="glorot_uniform", stateful=stateful, return_state=True)(embedding_layer)
+                output_layer = Dense(1, activation='sigmoid')(h_l1)
+                model = Model(input_layer, [output_layer, cell_state])
+                model.compile(loss=['binary_crossentropy', 'mse'],
+                              optimizer='adam',
+                              metrics=['accuracy'], loss_weights=[1.0*scale_amount,1.0])
+                print('Train...')
+
+                model.fit(x_train, [y_train, y_cell_train],
+                          batch_size=batch_size,
+                          epochs=epochs,
+                          validation_data=(x_test, [y_test, y_cell_test]))
             else:
-                model.add(Embedding(input_dim=max_features, output_dim=embedding_size))
-
-            # Input = size of vocab, output = dimension of dense embedding
-
-            if not iLSTM:
-                model.add(
-                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
-            else:
-                model.add(
-                LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful))
-
-            if not iLSTM:
-                model.add(Dense(1, activation='sigmoid'))
-            else:
-                model.add(Dense(len(y_train[0]), activation='linear'))
-
+                if stateful:
+                    print("STATEFUL")
+                    embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size, batch_input_shape=(batch_size, maxlen))
+                else:
+                    embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size)
+                hidden_layer = LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
+                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful)
+                output_layer = Dense(1, activation='sigmoid')
+                model = Model(embedding_layer, output_layer)
+                model.compile(loss='binary_crossentropy',
+                              optimizer='adam',
+                              metrics=['accuracy'])
+                print('Train...')
+                model.fit(x_train, y_train,
+                          batch_size=batch_size,
+                          epochs=epochs,
+                          validation_data=(x_test, y_test))
 
             # Because it is a binary classification problem, log loss is used as the loss function (binary_crossentropy in Keras). The efficient ADAM optimization algorithm is used. The model is          fit for only 2 epochs because it quickly overfits the problem. A large batch size of 64 reviews is used to space out weight updates.
 
             # try using different optimizers and different optimizer configs
 
-            if not iLSTM:
-                model.compile(loss='binary_crossentropy',
-                              optimizer='adam',
-                              metrics=['accuracy'])
-            else:
-                model.compile(loss='mse',
-                              optimizer='adam',
-                              metrics=['accuracy'])
 
 
-            print('Train...')
-            model.fit(x_train, y_train,
-                      batch_size=batch_size,
-                      epochs=epochs,
-                      validation_data=(x_test, y_test))
+
+
         elif import_model is not None:
             print("Loading model...")
             model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model )
@@ -367,7 +391,7 @@ for i in range(len(all_params)):
                 forget_bias) + " DO" \
                         + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
                 embedding_size) + "LS" + \
-                        str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTTrue"
+                        str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTTrue" + " lr" + str(use_lr)
 
             print(file_name)
 
