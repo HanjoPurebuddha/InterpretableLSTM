@@ -58,8 +58,8 @@ output_layer = Dense(1)(h_l1)
 
 model = Model(input_layer, [output_layer, cell_state])
 
-model.compile(loss=['mse', 'binary_crossentropy'],
-                          optimizer='adam',
+model.compile(loss=['binary_crossentropy', 'mse'],
+                          optimizer='adam', loss_weights=[1.0,1.0],
                           metrics=['accuracy'])
 
 class_weight_y = {}
@@ -72,4 +72,4 @@ class_weight_y[1] = n_classes * scale
 for i in range(n_classes):
     class_weight_y_cell[i] = 1
 
-model.fit(x, [y, y_cell], class_weight=[class_weight_y, class_weight_y_cell])
+model.fit(x, [y, y_cell], epochs=20000)

@@ -48,6 +48,7 @@ from itertools import product
 import numpy as np
 import random
 import os
+import ast
 from sklearn.metrics import f1_score
 
 
@@ -57,7 +58,7 @@ i_output_name = "PCAppmi0None20kCV1S0 SFT0 allL0305000LRkappa KMeans CA200 MC1 M
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
 batch_size_a = [25] # M
-epochs_a = [64] #15,30,10 # L
+epochs_a = [1] #15,30,10 # L
 dropout_a = [0.3] # L
 recurrent_dropout_a = [0.05] # S
 embedding_size_a = [16] # S
@@ -107,17 +108,17 @@ if import_model is not None:
         lstm_size =  int(variables[7].split("L")[1][1:].split(".")[0])
         print(".Txt detected, split on '.', result is: " + str(lstm_size))
     try:
-        stateful = bool(variables[9][2:])
+        stateful = ast.literal_eval(variables[9][2:])
     except IndexError:
         print("Stateful not included, set to default false value")
         stateful = False
     try:
-        iLSTM = bool(variables[10][2:])
+        iLSTM = ast.literal_eval(variables[10][2:])
     except IndexError:
         print("iLSTM not included, set to default false value")
         iLSTM = False
     try:
-        iLSTM_t_model = bool(variables[11][2:])
+        iLSTM_t_model = ast.literal_eval(variables[11][2:])
     except IndexError:
         print("iLSTM not included, set to default false value")
         iLSTM_t_model = False
@@ -126,6 +127,12 @@ if import_model is not None:
     except IndexError:
         print("use_lr not included, set to default false value")
         use_lr = False
+    try:
+        scale_amount = float(variables[13][2:])
+    except IndexError:
+        print("scale_amt not included, set to default false value")
+        scale_amount = 1
+
 
 
 
@@ -297,10 +304,14 @@ for i in range(len(all_params)):
         print(len(x_test), 'test sequences')
         print(len(y_train), 'ytrain sequences')
         print(len(y_test), 'ytest sequences')
+        print(len(y_cell_test), 'y_cell_test sequences')
+        print(len(y_cell_train), 'y_cell_train sequences')
         print('x_train shape:', x_train.shape)
         print('x_test shape:', x_test.shape)
         print('y_train shape:', y_train.shape)
         print('y_test shape:', y_test.shape)
+        print('y_cell_test shape:', y_cell_test.shape)
+        print('y_cell_train shape:', y_cell_train.shape)
 
         # print(len(x_dev), 'dev train sequences')
         # print(len(y_dev), 'dev test sequences')
@@ -331,7 +342,7 @@ for i in range(len(all_params)):
                 input_layer = Input(shape=(maxlen,))  #
                 embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size)(input_layer)
                 h_l1, h_l2, cell_state = LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                     dropout=0.0, recurrent_dropout=0.0, kernel_initializer="glorot_uniform", stateful=stateful, return_state=True)(embedding_layer)
+                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful, return_state=True)(embedding_layer)
                 output_layer = Dense(1, activation='sigmoid')(h_l1)
                 model = Model(input_layer, [output_layer, cell_state])
                 model.compile(loss=['binary_crossentropy', 'mse'],
@@ -365,11 +376,6 @@ for i in range(len(all_params)):
             # Because it is a binary classification problem, log loss is used as the loss function (binary_crossentropy in Keras). The efficient ADAM optimization algorithm is used. The model is          fit for only 2 epochs because it quickly overfits the problem. A large batch size of 64 reviews is used to space out weight updates.
 
             # try using different optimizers and different optimizer configs
-
-
-
-
-
         elif import_model is not None:
             print("Loading model...")
             model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model )
