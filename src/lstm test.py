@@ -47,6 +47,7 @@ import numpy as np
 import random
 import os
 from sklearn.metrics import f1_score
+import ast
 
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
@@ -101,17 +102,17 @@ if import_model is not None:
         lstm_size =  int(variables[7].split("L")[1][1:].split(".")[0])
         print(".Txt detected, split on '.', result is: " + str(lstm_size))
     try:
-        stateful = bool(variables[9][2:])
+        stateful = ast.literal_eval(variables[9][2:])
     except IndexError:
         print("Stateful not included, set to default false value")
         stateful = False
     try:
-        iLSTM = bool(variables[10][2:])
+        iLSTM = ast.literal_eval(variables[10][2:])
     except IndexError:
         print("iLSTM not included, set to default false value")
         iLSTM = False
     try:
-        iLSTM_t_model = bool(variables[11][2:])
+        iLSTM_t_model = ast.literal_eval(variables[11][2:])
     except IndexError:
         print("iLSTM not included, set to default false value")
         iLSTM_t_model = False
@@ -126,7 +127,7 @@ data_path = "../data/sentiment/lstm/"
 
 
 def saveVectors(m, v_fn):
-    if os.path.exists(v_fn) is False:
+    if os.path.exists(v_fn + ".npy") is False:
         print("Output vectors")
         inp = m.input  # input placeholder
         outputs = [layer.output for layer in m.layers]  # all layer outputs
@@ -200,7 +201,7 @@ for i in range(len(all_params)):
         recurrent_dropout = all_params[5][max_index_a[5]]
         embedding_size = all_params[6][max_index_a[6]]
         lstm_size = all_params[7][max_index_a[7]]
-    print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size, stateful, iLSTM)
+    print(max_features, maxlen, batch_size, epochs, dropout, recurrent_dropout, embedding_size, lstm_size, stateful, iLSTM, iLSTM_t_model)
     max_index = 0
     max_acc = 0
     for j in range(len(all_params[i])):
@@ -356,11 +357,12 @@ for i in range(len(all_params)):
         saveModel(model, model_fn)
         saveVectors(model, vector_fn)
         saveState(model, state_fn, final_state_fn)
-        acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, rewrite)
-        # Do the thing to get the acc
-        if acc > max_acc:
-            max_index = j
-            max_acc = acc
+        if not iLSTM:
+            acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, rewrite)
+            # Do the thing to get the acc
+            if acc > max_acc:
+                max_index = j
+                max_acc = acc
 
         # Train the new supervised model
         if iLSTM and not iLSTM_t_model:
