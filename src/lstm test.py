@@ -50,15 +50,19 @@ import random
 import os
 import ast
 from sklearn.metrics import f1_score
+from sklearn.metrics import accuracy_score
 
+np.set_printoptions(suppress=True)
 
 i_output_name = "PCAppmi0None20kCV1S0 SFT0 allL0305000LRkappa KMeans CA200 MC1 MS0.4 ATS2001 DS400 tdev"
+n_clusters_fn = "PCAppmi0None20kCV1S0 SFT0 allL030LR5000kappa KMeans CA200 MC1 MS0.4 ATS2001 DS400"
 
+save_format = "%1.3f"
 
 max_features_a = [5000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
 batch_size_a = [25] # M
-epochs_a = [1] #15,30,10 # L
+epochs_a = [64] #15,30,10 # L
 dropout_a = [0.3] # L
 recurrent_dropout_a = [0.05] # S
 embedding_size_a = [16] # S
@@ -80,17 +84,30 @@ all_params.append(learn_rate_a)
 max_index_a = np.zeros(len(all_params), dtype="int")
 
 scale_amount = 1
+scale_amount_2 = 100
 stateful =False
 forget_bias = True
 dev = True
 use_all = False
 iLSTM = True
 iLSTM_t_model = False
-rewrite = True
+rewrite = False
 use_lr = False
 
+def import1dArray(file_name, file_type="s"):
+    with open(file_name, "r") as infile:
+        if file_type == "f":
+            array = []
+            lines = infile.readlines()
+            for line in lines:
+                array.append(float(line.strip()))
+        elif file_type == "i":
+            array = [int(line.strip()) for line in infile]
+        else:
+            array = [line.strip() for line in infile]
+    return np.asarray(array)
 
-import_model = None#"MF5000 ML500 BS32 FBTrue DO0.3 RDO0.05 E64 ES16LS32.txt"
+import_model = "MF5000 ML300 BS25 FBTrue DO0.3 RDO0.05 E64 ES16LS200 UAFalse SFFalse iLTrue rTFalse lrFalse sA1"
 
 if import_model is not None:
     variables = import_model.split()
@@ -166,22 +183,81 @@ def saveModel(m, m_fn):
         print("Model already saved")
 
 
-def saveScores(m, s_fn, development, x, y, rewrite):
-    a_fn = s_fn + " score" + " d" + str(development)
-    f1_fn = s_fn + " score" + " d" + str(development)
+
+def saveScores(m, s_fn, development, x, y, rewrite, y_cell=None, y_names=None):
+    a_fn = s_fn + " acc" + " d" + str(development)
+    f1_fn = s_fn + " f1" + " d" + str(development)
     sc_fn = s_fn + " score" + " d" + str(development)
     if os.path.exists(sc_fn ) is False or os.path.exists(f1_fn) is False or rewrite:
         print("Scores")
-        score, acc = model.evaluate(x, y,
-                                    batch_size=batch_size)
-        y_pred = model.predict_classes(y)
-        f1 = f1_score(y, y_pred)
+        if y_cell is None:
+            score, acc = m.evaluate(x, y,
+                                        batch_size=batch_size)
+            y_pred = m.predict_classes(x)
+            f1 = f1_score(y, y_pred, average="binary")
+        else:
+            acc = m.evaluate(x, [y, y_cell], batch_size=batch_size)
+            print("all returned",  acc)
+            score = acc[2]
+            ys_pred = m.predict(x, verbose=1, batch_size=batch_size)
+            y_pred_a = np.asarray(ys_pred[0])
+            y_pred = np.zeros(len(y_pred_a), dtype=np.float64)
+            y_cell_pred = np.asarray(ys_pred[1])
+            for i in range(len(y_pred)):
+                y_pred[i] = y_pred_a[i][0]
+            y_pred_classes = np.where(y_pred > 0.5, 1, y_pred)
+            y_pred_classes = np.where(y_pred_classes <= 0.5, 0, y_pred_classes)
+            y_pred_classes = y_pred_classes.astype(np.int64)
+            f1 = f1_score(y, y_pred_classes, average="binary")
+            compared_acc = accuracy_score(y, y_pred_classes)
+            y_cell_pred = y_cell_pred.transpose()
+            y_cell_pred_classes = np.empty(len(y_cell_pred), dtype=np.object)
+            for c in range(len(y_cell_pred)):
+                y_cell_pred_classes[c] = np.where(y_cell_pred[c] > 0.5, 1, y_cell_pred[c])
+                y_cell_pred_classes[c] = np.where(y_cell_pred_classes[c] <= 0.5, 0, y_cell_pred_classes[c])
+                y_cell_pred_classes[c] = y_cell_pred_classes[c].astype(np.int64)
+            y_cell = y_cell.transpose()
+            accs = np.zeros(len(y_cell_pred_classes), dtype=np.float64)
+            f1s = np.zeros(len(y_cell_pred_classes), dtype=np.float64)
+            nonzeros = np.zeros(len(y_cell), dtype=np.int64)
+            for c in range(len(y_cell_pred_classes)):
+                nonzeros[c] = np.count_nonzero(y_cell[c])
+                cell_acc = accuracy_score(y_cell[c], y_cell_pred_classes[c])
+                cell_f1 = f1_score(y_cell[c], y_cell_pred_classes[c], average="binary")
+                print(y_names[c], "acc", cell_acc, "f1", cell_f1)
+                accs[c] = cell_acc
+                f1s[c] = cell_f1
+            ids = np.flipud(np.argsort(f1s))
+            f1s = f1s[ids]
+            accs = accs[ids]
+            top_clusters = y_names[ids]
+            nonzeros = nonzeros[ids]
+            for i in range(len(top_clusters)):
+                print(nonzeros[i], "f1", f1s[i], "acc", accs[i], top_clusters[i])
+            overall_acc = np.average(accs) # Macro accuracy score
+            overall_f1 = np.average(f1s)
+            print("overall y_cell acc", overall_acc)
+            print("overall y_cell f1", overall_f1)
+
+            acc = compared_acc
+            f1 = f1
+
+            #score_cell = score[1]
+            #score = score[0]
+            #y_pred = m.predict_classes([y, y_cell])
+            #f1 = f1_score(y, y_pred[0])
+            #f1_cell = f1_score(y_cell, y_pred[1])
+            np.savetxt(f1_fn + " cell", [overall_f1], fmt=save_format)
+            np.savetxt(a_fn + " cell", [overall_acc], fmt=save_format)
+            np.savetxt(f1_fn + " cell_a", [f1s], fmt=save_format)
+            np.savetxt(a_fn + " cell_a", [accs], fmt=save_format)
+
         print('Test score:', score)
         print('Test accuracy:', acc)
         print('Test f1:', f1)
-        np.savetxt(a_fn, [acc])
-        np.savetxt(sc_fn, [score])
-        np.savetxt(f1_fn, [f1])
+        np.savetxt(a_fn, [acc], fmt=save_format)
+        np.savetxt(sc_fn, [score], fmt=save_format)
+        np.savetxt(f1_fn, [f1], fmt=save_format)
         print("Saved")
     else:
         acc = np.loadtxt(a_fn, dtype="float")
@@ -244,9 +320,14 @@ for i in range(len(all_params)):
 
 
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
-        y_cell = np.load("../data/sentiment/lstm/b_clusters/"+ i_output_name + ".npy").transpose()
-        y_cell_train = y_cell[:len(x_train)]
-        y_cell_test = y_cell[len(x_train):len(x_train) + len(x_test)]
+        if iLSTM:
+            y_cell = np.load("../data/sentiment/lstm/b_clusters/"+ i_output_name + ".npy").transpose()
+            y_cell_train = y_cell[:len(x_train)]
+            y_cell_test = y_cell[len(x_train):len(x_train) + len(x_test)]
+        else:
+            y_cell = None
+            y_cell_train = None
+            y_cell_test = None
 
         print("development data for hyperparameter tuning")
 
@@ -254,24 +335,27 @@ for i in range(len(all_params)):
         if dev and not use_all:
             x_dev = x_train[int(len(x_train) * 0.8):]
             y_dev = y_train[int(len(y_train) * 0.8):]
-            y_cell_dev = y_cell_train[int(len(y_cell_train) * 0.8):]
             x_train = x_train[:int(len(x_train) * 0.8)]
             y_train = y_train[:int(len(y_train) * 0.8)]
-            y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
             y_test = y_dev
             x_test = x_dev
-            y_cell_test = y_cell_dev
+            if iLSTM:
+                y_cell_dev = y_cell_train[int(len(y_cell_train) * 0.8):]
+                y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
+                y_cell_test = y_cell_dev
         elif use_all:
             x_train = np.concatenate((x_train, x_test))
             y_train = np.concatenate((y_train, y_test))
             x_test = x_train
             y_test = y_train
-            y_cell_train = np.concatenate((y_cell_train, y_cell_test))
-            y_cell_test = y_cell_train
+            if iLSTM:
+                y_cell_train = np.concatenate((y_cell_train, y_cell_test))
+                y_cell_test = y_cell_train
         elif not dev and not use_all:
             x_train = x_train[:int(len(x_train) * 0.8)]
             y_train = y_train[:int(len(y_train) * 0.8)]
-            y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
+            if iLSTM:
+                y_cell_train = y_cell_train[:int(len(y_cell_train) * 0.8)]
 
         if iLSTM:
             lstm_size = len(y_cell_train[0])
@@ -304,14 +388,15 @@ for i in range(len(all_params)):
         print(len(x_test), 'test sequences')
         print(len(y_train), 'ytrain sequences')
         print(len(y_test), 'ytest sequences')
-        print(len(y_cell_test), 'y_cell_test sequences')
-        print(len(y_cell_train), 'y_cell_train sequences')
         print('x_train shape:', x_train.shape)
         print('x_test shape:', x_test.shape)
         print('y_train shape:', y_train.shape)
         print('y_test shape:', y_test.shape)
-        print('y_cell_test shape:', y_cell_test.shape)
-        print('y_cell_train shape:', y_cell_train.shape)
+        if iLSTM:
+            print('y_cell_test shape:', y_cell_test.shape)
+            print('y_cell_train shape:', y_cell_train.shape)
+            print(len(y_cell_test), 'y_cell_test sequences')
+            print(len(y_cell_train), 'y_cell_train sequences')
 
         # print(len(x_dev), 'dev train sequences')
         # print(len(y_dev), 'dev test sequences')
@@ -325,7 +410,8 @@ for i in range(len(all_params)):
             forget_bias) + " DO" \
                     + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
             embedding_size) + "LS" + \
-                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rT" + str(iLSTM_t_model) + " lr" + str(use_lr) + " sA" + str(scale_amount)
+                    str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rT" + \
+                        str(iLSTM_t_model) + " lr" + str(use_lr) + " sA" + str(scale_amount)+ " sA2" + str(scale_amount_2)
         else:
             file_name = import_model
         print(file_name)
@@ -336,15 +422,26 @@ for i in range(len(all_params)):
         state_fn = data_path + "states/" + file_name + " HState"
         final_state_fn = data_path + "states/" + file_name + " FState"
 
+        input_layer = None
+        embedding_layer = None
+        cell_state = None
+        output_layer = None
+        model = None
+
+        if iLSTM:
+            input_layer = Input(shape=(maxlen,))  #
+            embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size)(input_layer)
+            h_l1, h_l2, cell_state = LSTM(units=lstm_size, recurrent_activation="hard_sigmoid",
+                                          unit_forget_bias=forget_bias, activation="tanh",
+                                          dropout=dropout, recurrent_dropout=recurrent_dropout,
+                                          kernel_initializer="glorot_uniform", stateful=stateful, return_state=True)(
+                embedding_layer)
+            output_layer = Dense(1, activation='sigmoid')(h_l1)
+            model = Model(input_layer, [output_layer, cell_state])
+
         if import_model is None and (os.path.exists(vector_fn) is False or os.path.exists(model_fn) is False or os.path.exists(score_fn) is False or os.path.exists(state_fn) is False):
 
             if iLSTM:
-                input_layer = Input(shape=(maxlen,))  #
-                embedding_layer = Embedding(input_dim=max_features, output_dim=embedding_size)(input_layer)
-                h_l1, h_l2, cell_state = LSTM(units=lstm_size, recurrent_activation="hard_sigmoid", unit_forget_bias=forget_bias, activation="tanh",
-                     dropout=dropout, recurrent_dropout=recurrent_dropout, kernel_initializer="glorot_uniform", stateful=stateful, return_state=True)(embedding_layer)
-                output_layer = Dense(1, activation='sigmoid')(h_l1)
-                model = Model(input_layer, [output_layer, cell_state])
                 model.compile(loss=['binary_crossentropy', 'mse'],
                               optimizer='adam',
                               metrics=['accuracy'], loss_weights=[1.0*scale_amount,1.0])
@@ -379,13 +476,16 @@ for i in range(len(all_params)):
         elif import_model is not None:
             print("Loading model...")
             model = keras.models.load_model("../data/sentiment/lstm/model/" + import_model )
-
-
-
         saveModel(model, model_fn)
-        saveVectors(model, vector_fn)
-        saveState(model, state_fn, final_state_fn)
-        acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, rewrite)
+        if iLSTM:
+            y_names = import1dArray("../data/sentiment/lstm/n_clusters/"+n_clusters_fn+".txt", "s")
+        else:
+            y_names = None
+
+        acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, rewrite, y_cell=y_cell_test, y_names=y_names)
+        if not iLSTM:
+            saveVectors(model, vector_fn)
+            saveState(model, state_fn, final_state_fn)
         # Do the thing to get the acc
         if acc > max_acc:
             max_index = j
@@ -397,7 +497,8 @@ for i in range(len(all_params)):
                 forget_bias) + " DO" \
                         + str(dropout) + " RDO" + str(recurrent_dropout) + " E" + str(epochs) + " ES" + str(
                 embedding_size) + "LS" + \
-                        str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTTrue" + " lr" + str(use_lr)
+                        str(lstm_size) + " UA" + str(use_all) + " SF" + str(stateful) + " iL" + str(iLSTM) + " rTTrue" + \
+                        " lr" + str(use_lr)+ " sA" + str(scale_amount)+ " sA2" + str(scale_amount_2)
 
             print(file_name)
 
@@ -408,16 +509,15 @@ for i in range(len(all_params)):
             state_fn = data_path + "states/" + file_name + " HState"
             final_state_fn = data_path + "states/" + file_name + " FState"
 
-            model.pop() # Remove previous layer
-            model.add(Dense(1, activation='sigmoid')) # Add supervised layer
-            model.compile(loss='binary_crossentropy',
+            model.compile(loss=['binary_crossentropy', 'mse'],
                           optimizer='adam',
-                          metrics=['accuracy'])
+                          metrics=['accuracy'], loss_weights=[1.0 * scale_amount_2, 1.0])
+            print('Train...')
 
-            x_test = s_x_test
-            y_test = s_y_test
-            y_train = s_y_train
-            x_train = s_x_train
+            model.fit(x_train, [y_train, y_cell_train],
+                      batch_size=batch_size,
+                      epochs=epochs,
+                      validation_data=(x_test, [y_test, y_cell_test]))
 
             print(len(x_train), 'train sequences')
             print(len(x_test), 'test sequences')
@@ -434,10 +534,8 @@ for i in range(len(all_params)):
                       epochs=epochs,
                       validation_data=(x_test, y_test))
 
-            saveVectors(model, vector_fn)
             saveModel(model, model_fn)
-            acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test)
-            saveState(model, state_fn, final_state_fn)
+            acc, score, f1 = saveScores(model, score_fn, dev, x_test, y_test, y_cell=y_cell_test, y_names=y_names)
 
             if acc > max_acc:
                 max_index = j
@@ -456,8 +554,8 @@ for i in range(len(all_params)):
     if import_model is None:
         print("max option for param", i, "is", max_index, "with", max_acc)
         max_index_a[i] = max_index
-        np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc", max_index_a)
-        np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc", all_params)
+        np.savetxt(data_path + "score/" + "max vals" + str(i) + " acc", max_index_a, fmt=save_format)
+        np.savetxt(data_path + "score/" + "all params" + str(i) +  " acc", all_params, fmt=save_format)
 
 # Generate parameter list
 params = []
