@@ -202,6 +202,7 @@ for i in range(len(all_params)):
             file_name = ""
             if test:
                 file_name += "TEST"
+                epochs = 1
 
             file_name = file_name + "wvMF" + str(max_features) + " ML" + str(maxlen) + " BS" + str(
                 batch_size) + " FB" + str(
