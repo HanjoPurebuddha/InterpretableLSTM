@@ -100,7 +100,7 @@ def import1dArray(file_name, file_type="s"):
             array = [line.strip() for line in infile]
     return np.asarray(array)
 
-word_vector_fn = "size100 window5 min_count5 sg1"
+word_vector_fn = "size200 window5 min_count5 sg1"
 
 import_model = None#"wvMF20000 ML300 BS25 FBTrue DO0.3 RDO0.05 E1 ES16LS100 UAFalse SFFalse iLFalse rTFalse lrFalse sA1 sA2100"
 
@@ -197,6 +197,8 @@ for i in range(len(all_params)):
             manage.getData(max_features, iLSTM, i_output_name, dev, use_all, test, maxlen)
 
         embedding_matrix, wv_size, wi_size = manage.getEmbeddingMatrix(word_vector_fn, word_index)
+
+        embedding_size = wv_size
 
         if import_model is None:
             file_name = ""
