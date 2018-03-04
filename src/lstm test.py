@@ -48,14 +48,14 @@ i_output_name = "PCAppmi0None20kCV1S0 SFT0 allL0305000LRkappa KMeans CA200 MC1 M
 n_clusters_fn = "PCAppmi0None20kCV1S0 SFT0 allL030LR5000kappa KMeans CA200 MC1 MS0.4 ATS2001 DS400"
 
 
-max_features_a = [5000, 20000] # Was 20,000 S
+max_features_a = [20000] # Was 20,000 S
 maxlen_a = [300]  # cut texts after this number of words (among top max_features most common words) # L
 batch_size_a = [25] # M
-epochs_a = [64] #15,30,10 # L
-dropout_a = [0.3] # L
-recurrent_dropout_a = [0.05] # S
+epochs_a = [32] #15,30,10 # L
+dropout_a = [0.2] # L
+recurrent_dropout_a = [0.1] # S
 embedding_size_a = [16] # S
-lstm_size_a = [32, 100] # S
+lstm_size_a = [100, 200, 300, 400] # S
 learn_rate_a = [0.001] # S
 
 
@@ -100,7 +100,7 @@ def import1dArray(file_name, file_type="s"):
             array = [line.strip() for line in infile]
     return np.asarray(array)
 
-word_vector_fn = "size200 window5 min_count5 sg1"
+word_vector_fn = "google_news_no_bigram_IMDB_words"
 
 import_model = None#"wvMF20000 ML300 BS25 FBTrue DO0.3 RDO0.05 E1 ES16LS100 UAFalse SFFalse iLFalse rTFalse lrFalse sA1 sA2100"
 

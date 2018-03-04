@@ -29,6 +29,8 @@ if phrases: # Convert to bigrams, can be iteratively applied e.g. trigrams = Phr
     bigrams = Phrases(sentences)
     sentences = bigrams[sentences]
 
+
+
 # Train word2vec model and save it
 model = Word2Vec(sentences, sg=sg, size=size, window=window, min_count=min_count, workers=3, sorted_vocab=1)
 

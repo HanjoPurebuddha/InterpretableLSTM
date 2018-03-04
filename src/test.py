@@ -6,70 +6,47 @@ from keras.layers import Dense
 from keras import Model
 from keras import backend as K
 import numpy as np
+#print(__doc__)
 
-# 10 clusters
-# 5 entities
+import numpy as np
+from sklearn.cluster import MeanShift, estimate_bandwidth
+from sklearn.datasets.samples_generator import make_blobs
 
-binary_cluster_array = np.random.randint(low=0, high=2, size=(10,5), dtype=np.int64)
-yT = np.random.random(size=(10,5))
-yP = np.random.random(size=(10,5))
+# #############################################################################
+# Generate sample data
+centers = [[1, 1], [-1, -1], [1, -1]]
+X, _ = make_blobs(n_samples=10000, centers=centers, cluster_std=0.6)
 
-#So in the case of 64 clusters, we have 64 outputs, with one additional output for the supervised objective, making 65 outputs. Each one of the cluster outputs has the loss function of:  log P(v_d |C), or log (1- P(v_d |C)), dependent on whether or not the document (in this case a sequence) contains that particular word, which we would check, I assume, using a binary input that represents if each document has a word present in a cluster, and this bag-of-words/clusters is given to the loss function for this purpose.
+# #############################################################################
+# Compute clustering with MeanShift
 
-#note that you should indeed use negative log values, e.g. if d contains one of the cluster terms then we want to maximise P(v_d|C) which is achieved by maximising log P(v_d|C) and thus by minimising -log P(v_d|C).
+# The following bandwidth can be automatically detected using
+bandwidth = estimate_bandwidth(X, quantile=0.2, n_samples=500)
 
-#yTrue = probability, yPred = hidden state
-def logLoss(yTrue,yPred):
-    logs = np.zeros(len(yTrue), dtype=np.float64)
-    for y in range(len(yTrue)):
-        if binary_cluster_array[0][y] == 1:
-            print(binary_cluster_array[0][y], yPred[y], -np.log(yPred[y]))
-            logs[y] = -np.log(yPred[y])
-        else:
-            print(binary_cluster_array[0][y], yPred[y], -np.log(yPred[y]))
-            logs[y] = -np.log(1-yPred[y])
-    sum = np.sum(logs)
-    print("np sum", sum)
-    return K.sum(logs)
+ms = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+ms.fit(X)
+labels = ms.labels_
+cluster_centers = ms.cluster_centers_
 
-def logLossNew(yTrue, yPred):
-    return K.sum(-K.log(yTrue - yPred))
-#print(logLossNew(yT[0], yP[0]))
+labels_unique = np.unique(labels)
+n_clusters_ = len(labels_unique)
 
-def logLossSupervised(yTrue, yPred):
-    return K.sum(K.log(yTrue) - K.log(yPred))
+print("number of estimated clusters : %d" % n_clusters_)
 
+# #############################################################################
+# Plot result
+import matplotlib.pyplot as plt
+from itertools import cycle
 
-from keras.models import *
-from keras.layers import *
+plt.figure(1)
+plt.clf()
 
-features = 10
-dimensions = 3
-timesteps = 5
-
-y = np.random.randint(low=0, high=2, size=(features), dtype=np.int64)
-y_cell = np.random.randint(low=0, high=2, size=(features, dimensions), dtype=np.int64)
-x = np.random.random(size=(features, timesteps))
-
-input_layer = Input(shape=(timesteps,))#
-input_sequence = Embedding(input_dim=1, output_dim =dimensions)(input_layer)
-h_l1, h_l2, cell_state = LSTM(dimensions, return_state=True)(input_sequence)
-output_layer = Dense(1)(h_l1)
-
-model = Model(input_layer, [output_layer, cell_state])
-
-model.compile(loss=['binary_crossentropy', 'mse'],
-                          optimizer='adam', loss_weights=[1.0,1.0],
-                          metrics=['accuracy'])
-
-class_weight_y = {}
-class_weight_y_cell = {}
-n_classes = len(y_cell[0])
-scale = 1
-
-class_weight_y[0] = n_classes * scale
-class_weight_y[1] = n_classes * scale
-for i in range(n_classes):
-    class_weight_y_cell[i] = 1
-
-model.fit(x, [y, y_cell], epochs=20000)
+colors = cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')
+for k, col in zip(range(n_clusters_), colors):
+    my_members = labels == k
+    cluster_center = cluster_centers[k]
+    plt.plot(X[my_members, 0], X[my_members, 1], col + '.')
+    plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
+             markeredgecolor='k', markersize=14)
+plt.title('Estimated number of clusters: %d' % n_clusters_)
+plt.show()
