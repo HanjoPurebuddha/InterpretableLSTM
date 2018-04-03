@@ -1,4 +1,6 @@
 import os
+from six.moves import cPickle as pickle
+
 def getFns(folder_path):
     return [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
 
@@ -11,8 +13,8 @@ def writeArrays(arrays, file_name):
         file.write("\n")
     file.close()
 
-def importArray(file_name):
-    with open(file_name, "r") as infile:
+def importArray(file_name, encoding="utf-8"):
+    with open(file_name, "r", encoding=encoding) as infile:
         array = []
         counter = 0
         try:
@@ -21,7 +23,7 @@ def importArray(file_name):
                 array.append(line)
                 counter += 1
         except UnicodeDecodeError:
-            return("Wrong encoding, line", print(counter))
+            raise Exception("UnicodeDecodeError: Wrong encoding")
     return array
 
 def importArrays(file_name):
@@ -35,3 +37,12 @@ def writeArray(array, name):
     for i in range(len(array)):
         file.write(str(array[i]) + "\n")
     file.close()
+
+def save_dict(di_, filename_): # for saving and loading dicts
+    with open(filename_, 'wb') as f:
+        pickle.dump(di_, f)
+
+def load_dict(filename_):
+    with open(filename_, 'rb') as f:
+        ret_di = pickle.load(f)
+    return ret_di

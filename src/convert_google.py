@@ -2,11 +2,11 @@ import os
 import read_text as rt
 import numpy as np
 from gensim.models.keyedvectors import KeyedVectors
-words_to_match = rt.importArray("../data/sentiment/wordvectors/words/0-None-all.txt")
+words_to_match = rt.importArray("../data/sentiment/wordvectors/words/0-None-all.txt", encoding="cp1252")
 
 embeddings_index = {}
 wv = KeyedVectors.load_word2vec_format("../data/sentiment/wordvectors/data/google/GoogleNews-vectors-negative300.bin", binary=True)
-
+wv.get_vector(words_to_match[w])
 entities = wv.index2entity
 
 embedding_matrix = np.zeros((len(words_to_match) + 1, 300))
