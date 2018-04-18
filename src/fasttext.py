@@ -1,4 +1,3 @@
-
 '''This example demonstrates the use of fasttext for text classification
 Based on Joulin et al's paper:
 Bags of Tricks for Efficient Text Classification
@@ -10,16 +9,14 @@ Results on IMDB datasets with uni and bi-gram embeddings:
 
 from __future__ import print_function
 import numpy as np
-import os
-import tensorflow as tf
+
 from keras.preprocessing import sequence
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Embedding
-from keras.layers import LSTM
 from keras.layers import GlobalAveragePooling1D
 from keras.datasets import imdb
-import parse_binary_treebank as ptb
+
 
 def create_ngram_set(input_list, ngram_value=2):
     """
@@ -44,13 +41,13 @@ def add_ngram(sequences, token_indice, ngram_range=2):
     >>> sequences = [[1, 3, 4, 5], [1, 3, 7, 9, 2]]
     >>> token_indice = {(1, 3): 1337, (9, 2): 42, (4, 5): 2017, (7, 9, 2): 2018}
     >>> add_ngram(sequences, token_indice, ngram_range=3)
-    [[1, 3, 4, 5, 1337], [1, 3, 7, 9, 2, 1337, 2018]]
+    [[1, 3, 4, 5, 1337, 2017], [1, 3, 7, 9, 2, 1337, 42, 2018]]
     """
     new_sequences = []
     for input_list in sequences:
         new_list = input_list[:]
-        for i in range(len(new_list) - ngram_range + 1):
-            for ngram_value in range(2, ngram_range + 1):
+        for ngram_value in range(2, ngram_range + 1):
+            for i in range(len(new_list) - ngram_value + 1):
                 ngram = tuple(new_list[i:i + ngram_value])
                 if ngram in token_indice:
                     new_list.append(token_indice[ngram])
@@ -60,31 +57,15 @@ def add_ngram(sequences, token_indice, ngram_range=2):
 
 # Set parameters:
 # ngram_range = 2 will add bi-grams features
-imdb_d = False
-ngram_range = 1
-max_features = 10000
-maxlen = 50
+ngram_range = 2
+max_features = 20000
+maxlen = 400
 batch_size = 32
-embedding_dims = 25
-epochs = 20
-
-dev = False
+embedding_dims = 50
+epochs = 5
 
 print('Loading data...')
-if imdb_d:
-    (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
-    x_dev = x_train[int(len(x_train) * 0.8):]
-    y_dev = y_train[int(len(y_train) * 0.8):]
-    x_train = x_train[:int(len(x_train) * 0.8)]
-    y_train = y_train[:int(len(y_train) * 0.8)]
-
-else:
-    x_train, x_test, x_dev, y_train, y_test, y_dev = ptb.loadProcessedSplits()
-
-if dev:
-    y_test = y_dev
-    x_test = x_dev
-
+(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
 print(len(x_train), 'train sequences')
 print(len(x_test), 'test sequences')
 print('Average train sequence length: {}'.format(np.mean(list(map(len, x_train)), dtype=int)))
@@ -140,7 +121,12 @@ model.add(Dense(1, activation='sigmoid'))
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
-
+x_dev = x_train[int(len(x_train) * 0.8):]
+y_dev = y_train[int(len(y_train) * 0.8):]
+x_train = x_train[:int(len(x_train) * 0.8)]
+y_train = y_train[:int(len(y_train) * 0.8)]
+x_test = x_dev
+y_test = y_dev
 model.fit(x_train, y_train,
           batch_size=batch_size,
           epochs=epochs,

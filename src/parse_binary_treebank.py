@@ -16,10 +16,7 @@ import read_text as rt
 #SST-1: Stanford Sentiment Treebank - an extension of MR but with train/dev/test splits provided and fine-grained labels (very positive, positive, neutral, negative, very negative), re-labeled by Socher et al. (2013). Link
 
 # Note that data is actually provided at the phrase-level and hence we train the model on both phrases and sentences but only score on sentences at test time, as in Socher et al. (2013), Kalchbrenner et al. (2014), and Le and Mikolov (2014). Thus the training set is an order of magnitude larger than listed in the above table.
-import spacy
-from spacy.tokenizer import Tokenizer
 
-from string import punctuation
 import string
 from gensim.models.keyedvectors import KeyedVectors
 

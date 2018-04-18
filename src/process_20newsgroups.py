@@ -1,6 +1,5 @@
 from sklearn.datasets import fetch_20newsgroups
-from spacy.tokenizer import Tokenizer
-import spacy
+
 import numpy as np
 import string
 import re
